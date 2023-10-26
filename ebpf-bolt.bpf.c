@@ -7,7 +7,7 @@
 struct perf_branch_entry entries[ENTRY_CNT] = {};
 
 SEC("perf_event")
-int BPF_PROG() {
+int BPF_PROG(lbr_branches) {
   long i;
 
   long total_entries = bpf_get_branch_snapshot(entries, sizeof(entries), 0);
