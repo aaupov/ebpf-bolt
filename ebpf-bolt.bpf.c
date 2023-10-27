@@ -4,7 +4,7 @@
 #include "ebpf-bolt.h"
 
 #define ENTRY_CNT 32
-struct perf_branch_entry entries[ENTRY_CNT] = {};
+static struct perf_branch_entry entries[ENTRY_CNT] SEC(".data.lbrs");
 
 SEC("perf_event")
 int BPF_PROG(lbr_branches) {
