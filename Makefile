@@ -14,7 +14,7 @@ app: $(TARGET) $(BPF_OBJ)
 
 $(TARGET): $(USER_C) $(USER_SKEL) $(COMMON_H)
 	gcc -Wall -o $(TARGET) $(USER_C) -L./libbpf/src -l:libbpf.a -lelf -lz \
-	    -I${CURDIR}/libbpf/install/include
+	    -I${CURDIR}/libbpf/install/include -I${CURDIR}/libbpf/include
 
 %.bpf.o: %.bpf.c vmlinux.h $(COMMON_H)
 	clang \

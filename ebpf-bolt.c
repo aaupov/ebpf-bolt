@@ -6,8 +6,10 @@
 
 #include <stdio.h>
 #include <bpf/libbpf.h>
+#include <uapi/linux/perf_event.h>
 #include "ebpf-bolt.h"
 #include "ebpf-bolt.skel.h"
+#include <asm/unistd.h>
 #include <argp.h>
 
 struct env
@@ -134,8 +136,20 @@ static int open_and_attach_perf_event(int freq, struct bpf_program *prog,
 	return 0;
 }
 
+void cleanup_core_btf(struct bpf_object_open_opts *opts) {
+	if (!opts)
+		return;
+
+	if (!opts->btf_custom_path)
+		return;
+
+	unlink(opts->btf_custom_path);
+	free((void *)opts->btf_custom_path);
+}
+
 int main(int argc, char **argv)
 {
+	int i;
 	LIBBPF_OPTS(bpf_object_open_opts, open_opts);
 	static const struct argp argp = {
 		.options = opts,
@@ -164,7 +178,7 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
-	skel = runqlen_bpf__open_opts(&open_opts);
+	skel = ebpf_bolt_bpf__open_opts(&open_opts);
 	if (!skel)
 	{
 		fprintf(stderr, "failed to open BPF object\n");
@@ -172,14 +186,14 @@ int main(int argc, char **argv)
 	}
 	/* initialize global data (filtering options) */
 	skel->rodata->pid = env.pid;
-	err = runqlen_bpf__load(skel);
+	err = ebpf_bolt_bpf__load(skel);
 	if (err) {
 		fprintf(stderr, "failed to load BPF object: %d\n", err);
 		goto cleanup;
 	}
-
-	memcpy(env.name, skel->bss->name);
-	skel->bss->name[strnlen(env.name, MAX_NAME_LEN)] = '\0';
+	
+	memcpy(env.name, skel->rodata->name, MAX_NAME_LEN);
+	skel->rodata->name[strnlen(env.name, MAX_NAME_LEN)] = '\0';
 
 	err = open_and_attach_perf_event(env.freq, skel->progs.lbr_branches, links);
 	if (err)
