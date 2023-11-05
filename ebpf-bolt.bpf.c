@@ -4,16 +4,22 @@
 #include "ebpf-bolt.h"
 
 #define ENTRY_CNT 32
+
+const volatile char name[MAX_NAME_LEN];
+const volatile int pid = 0;
+
 static struct perf_branch_entry entries[ENTRY_CNT] SEC(".data.lbrs");
 
 SEC("perf_event")
-int BPF_PROG(lbr_branches) {
+int BPF_PROG(lbr_branches)
+{
   long i;
 
   long total_entries = bpf_get_branch_snapshot(entries, sizeof(entries), 0);
   total_entries /= sizeof(struct perf_branch_entry);
 
-  for (i = 0; i < ENTRY_CNT; i++) {
+  for (i = 0; i < ENTRY_CNT; i++)
+  {
     if (i >= total_entries)
       break;
   }
