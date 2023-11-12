@@ -14,7 +14,20 @@ SEC("perf_event")
 int BPF_PROG(lbr_branches)
 {
   long i;
-
+  if (name) { // filtering by process name
+    char curr_name[MAX_NAME_LEN];
+    if (bpf_get_current_comm(curr_name, MAX_NAME_LEN) != 0) // failed to get process name
+      return 1; // return an error code
+    if (bpf_strncmp(curr_name, name, MAX_NAME_LEN) != 0) // process name doesn't match
+      return 0; // exit normally
+    // otherwise continue to reading the entries
+  } else if (pid) { // filtering by pid
+    if ((bpf_get_current_pid_tgid() & 0x0000FFFF) != pid) // pid doesn't match
+      return 0; // exit normally
+    // otherwise continue to reading the entries
+  } else { // no filtering
+    return 0; // exit normally
+  }
   // bpf_get_current_pid_tgid: by pid
   // bpf_get_current_comm: by process name
   // bpf_get_current_task: 
