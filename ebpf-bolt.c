@@ -185,15 +185,17 @@ int main(int argc, char **argv)
 		return 1;
 	}
 	/* initialize global data (filtering options) */
-	skel->rodata->pid = env.pid;
+	skel->bss->pid = env.pid;
 	err = ebpf_bolt_bpf__load(skel);
 	if (err) {
 		fprintf(stderr, "failed to load BPF object: %d\n", err);
 		goto cleanup;
 	}
 	
-	memcpy(env.name, skel->rodata->name, MAX_NAME_LEN);
-	skel->rodata->name[strnlen(env.name, MAX_NAME_LEN)] = '\0';
+	int name_len = strnlen(env.name, MAX_NAME_LEN);
+	skel->bss->name_len = name_len;
+	memcpy(env.name, skel->bss->name, name_len);
+	skel->bss->name[name_len] = '\0';
 
 	err = open_and_attach_perf_event(env.freq, skel->progs.lbr_branches, links);
 	if (err)

@@ -6,6 +6,16 @@
 
 #define MAX_NAME_LEN 128
 
+struct lbr_entry_key_t {
+  unsigned long long from;
+  unsigned long long to;
+};
+
+struct lbr_entry_val_t {
+  //struct bpf_spin_lock lock;
+  unsigned long long count;
+};
+
 struct preagg_entry_t {
   unsigned long long from;
   unsigned long long to;
