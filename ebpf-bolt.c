@@ -141,6 +141,27 @@ void cleanup_core_btf(struct bpf_object_open_opts *opts) {
 	free((void *)opts->btf_custom_path);
 }
 
+static void walk_hash_elements(int map_fd)
+{
+  struct lbr_entry_key_t *cur_key = NULL;
+  struct lbr_entry_key_t next_key;
+  struct lbr_entry_val_t value;
+  int err;
+
+  for (;;) {
+    err = bpf_map_get_next_key(map_fd, cur_key, &next_key);
+    if (err)
+      break;
+
+    bpf_map_lookup_elem(map_fd, &next_key, &value);
+
+    // Use key and value here
+    printf("%llx %llx %llu 0", cur_key->from, cur_key->to, value.count);
+
+    cur_key = &next_key;
+  }
+}
+
 int main(int argc, char **argv)
 {
 	int i;
@@ -196,6 +217,7 @@ int main(int argc, char **argv)
 			break;
 	}
 	// Read maps and print aggregated data
+  walk_hash_elements(bpf_map__fd(skel->maps.agg_lbr_entries));
 cleanup:
 	for (i = 0; i < nr_cpus; i++)
 		bpf_link__destroy(links[i]);
