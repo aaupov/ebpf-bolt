@@ -16,13 +16,11 @@ struct env
 {
 	time_t duration;
 	int freq;
-	char *name;
 	int pid;
 } env = {
 	.duration = 10,
 	.freq = 99,
 	.pid = -1,
-	.name = NULL,
 };
 
 const char *argp_program_version = "ebpf-bolt 0.1";
@@ -36,7 +34,6 @@ const char argp_program_doc[] =
 
 static const struct argp_option opts[] = {
 	{"pid", 'p', "PID", 0, "Sample on this PID only"},
-	{"name", 'n', "NAME", 0, "Sample on this process name only"},
 	{"frequency", 'f', "FREQUENCY", 0, "Sample with a certain frequency"},
 	{NULL, 'h', NULL, OPTION_HIDDEN, "Show the full help"},
 	{},
@@ -59,9 +56,6 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state)
 			fprintf(stderr, "Invalid PID: %s\n", arg);
 			argp_usage(state);
 		}
-		break;
-	case 'n':
-		env.name = arg;
 		break;
 	case 'f':
 		errno = 0;
@@ -94,9 +88,9 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state)
 	default:
 		return ARGP_ERR_UNKNOWN;
 	}
-	if (env.pid == -1 && env.name == NULL)
+	if (env.pid == -1)
 	{
-		fprintf(stderr, "Please specify either PID or name\n");
+		fprintf(stderr, "Please specify either PID\n");
 		argp_usage(state);
 	}
 	return 0;
@@ -191,11 +185,6 @@ int main(int argc, char **argv)
 		fprintf(stderr, "failed to load BPF object: %d\n", err);
 		goto cleanup;
 	}
-	
-	int name_len = strnlen(env.name, MAX_NAME_LEN);
-	skel->bss->name_len = name_len;
-	memcpy(env.name, skel->bss->name, name_len);
-	skel->bss->name[name_len] = '\0';
 
 	err = open_and_attach_perf_event(env.freq, skel->progs.lbr_branches, links);
 	if (err)
