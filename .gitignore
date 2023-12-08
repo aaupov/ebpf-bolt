@@ -1,0 +1,4 @@
+ebpf-bolt
+ebpf-bolt.bpf.o
+ebpf-bolt.skel.h
+vmlinux.h
