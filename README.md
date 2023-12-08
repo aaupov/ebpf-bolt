@@ -9,9 +9,13 @@ This tool achieves much lower total overhead compared to perf sampling thanks to
 4. Aggregated entries are stored in per-CPU hash tables eliminating atomic increments and cache effects. Accumulation across CPUs occurs once when the profile is dumped.
 
 ## Prerequisites
-This tool makes use of [eBPF CO-RE](https://docs.kernel.org/bpf/libbpf/libbpf_overview.html#bpf-co-re-compile-once-run-everywhere) for portability.
-- Kernel: Linux 4.16+ with `CONFIG_DEBUG_INFO_BTF=y`.
-- Compiler: Clang 10+ or GCC 12+ with BPF target and CO-RE relocations support.
+This tool makes use of LBR for 0-overhead sampling and [eBPF CO-RE](https://docs.kernel.org/bpf/libbpf/libbpf_overview.html#bpf-co-re-compile-once-run-everywhere) for portability.
+- CPU: LBR/branch stack sampling support
+  - Intel Last Branch Record (LBR): since Pentium 4 Netburst, including all Atom CPUs, Linux 2.6.35.
+  - AMD Branch Sampling (BRS): since Zen3 for EPYC, since Zen4 for other, Linux 5.19.
+  - ARM Branch Record Buffer Extensions (BRBE): since v9.2-A (Cortex-X4, A720, and A520), Linux v6.1.
+- Kernel: Linux 4.16 with `CONFIG_DEBUG_INFO_BTF=y` for BPF CO-RE, 
+- Compiler: Clang 10 or GCC 12 with BPF target and CO-RE relocations support.
 
 ## Build instructions
 1. Clone this repository with libbpf submodule: 
