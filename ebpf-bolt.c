@@ -23,11 +23,9 @@ struct env {
 const char *argp_program_version = "ebpf-bolt 0.1";
 const char *argp_program_bug_address =
     "https://github.com/aaupov/ebpf-bolt/issues";
-const char argp_program_doc[] = "Collect pre-aggregated BOLT profile.\n"
-                                "\n"
-                                "USAGE: ebpf-bolt [--help] [-p PID | -n NAME] "
-                                "[-f FREQUENCY (99Hz)] [duration (10s)]\n"
-                                "\n";
+const char argp_program_doc[] =
+    "Collect pre-aggregated BOLT profile.\n\n"
+    "USAGE: ebpf-bolt [-f FREQUENCY (99Hz)] -p PID [duration (10s)]\n";
 
 static const struct argp_option opts[] = {
     {"pid", 'p', "PID", 0, "Sample on this PID only"},
