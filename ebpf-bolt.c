@@ -111,8 +111,9 @@ static int open_and_attach_perf_event(int freq, struct bpf_program *prog,
 	struct perf_event_attr attr = {
 		.type = PERF_TYPE_HARDWARE,
 		.freq = 1,
-		.sample_period = freq,
+		.sample_freq = freq,
 		.config = PERF_COUNT_HW_CPU_CYCLES,
+    .branch_sample_type = PERF_SAMPLE_BRANCH_USER,
 	};
 	int i, fd;
 
