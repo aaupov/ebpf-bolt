@@ -25,8 +25,11 @@ int BPF_PROG(lbr_branches)
   if (curr_pid != pid) // pid doesn't match
     return 0;          // exit normally
 
+  bpf_printk("BPF triggered from PID %d", pid);
+
   long total_entries = bpf_get_branch_snapshot(entries, sizeof(entries), 0);
   total_entries /= sizeof(struct perf_branch_entry);
+  bpf_printk("total_entries %d:", total_entries);
 
   struct lbr_entry_val_t zero = {};
 
@@ -35,6 +38,7 @@ int BPF_PROG(lbr_branches)
     if (i >= total_entries)
       break;
     struct lbr_entry_key_t entry = {entries[i].from, entries[i].to};
+    bpf_printk("entry %llx->%llx", entries[i].from, entries[i].to);
     // atomically increment the count of the entry
     struct lbr_entry_val_t *val = bpf_map_lookup_elem(&agg_lbr_entries, &entry);
     if (val == NULL)
@@ -48,6 +52,7 @@ int BPF_PROG(lbr_branches)
     ++val->count;
     if (bpf_map_update_elem(&agg_lbr_entries, &entry, val, BPF_ANY))
       return 1; // return an error code
+    bpf_printk("bumped count: %lld", val->count);
   }
   return 0;
 }

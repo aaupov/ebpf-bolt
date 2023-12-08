@@ -5,6 +5,7 @@
 // Amir Ayupov
 
 #include <stdio.h>
+#include <bpf/bpf.h>
 #include <bpf/libbpf.h>
 #include <uapi/linux/perf_event.h>
 #include "ebpf-bolt.h"
@@ -17,10 +18,12 @@ struct env
 	time_t duration;
 	int freq;
 	int pid;
+  bool verbose;
 } env = {
 	.duration = 10,
 	.freq = 99,
 	.pid = -1,
+  .verbose = 0
 };
 
 const char *argp_program_version = "ebpf-bolt 0.1";
@@ -36,6 +39,7 @@ static const struct argp_option opts[] = {
 	{"pid", 'p', "PID", 0, "Sample on this PID only"},
 	{"frequency", 'f', "FREQUENCY", 0, "Sample with a certain frequency"},
 	{NULL, 'h', NULL, OPTION_HIDDEN, "Show the full help"},
+  {"verbose", 'v', NULL, 0, "Verbose debug output" },
 	{},
 };
 
@@ -48,6 +52,9 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state)
 	case 'h':
 		argp_state_help(state, stderr, ARGP_HELP_STD_HELP);
 		break;
+  case 'v':
+    env.verbose = true;
+    break;
 	case 'p':
 		errno = 0;
 		env.pid = strtol(arg, NULL, 10);
@@ -162,6 +169,13 @@ static void walk_hash_elements(int map_fd, int nr_cpus)
   }
 }
 
+static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
+                           va_list args) {
+  if (level == LIBBPF_DEBUG && !env.verbose)
+    return 0;
+  return vfprintf(stderr, format, args);
+}
+
 int main(int argc, char **argv)
 {
 	int i;
@@ -192,6 +206,9 @@ int main(int argc, char **argv)
 						"increase MAX_CPU_NR's value and recompile");
 		return 1;
 	}
+
+  /* Set up libbpf errors and debug info callback */
+  libbpf_set_print(libbpf_print_fn);
 
 	skel = ebpf_bolt_bpf__open_opts(&open_opts);
 	if (!skel)
