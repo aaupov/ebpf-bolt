@@ -1,7 +1,7 @@
+#include "ebpf-bolt.h"
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
-#include "ebpf-bolt.h"
 
 #define ENTRY_CNT 32
 
@@ -9,8 +9,7 @@ int pid = 0;
 
 static struct perf_branch_entry entries[ENTRY_CNT] SEC(".data.lbrs");
 
-struct
-{
+struct {
   __uint(type, BPF_MAP_TYPE_PERCPU_HASH);
   __uint(max_entries, 1 << 20);
   __type(key, struct lbr_entry_key_t);
@@ -18,8 +17,7 @@ struct
 } agg_lbr_entries SEC(".maps");
 
 SEC("perf_event")
-int BPF_PROG(lbr_branches)
-{
+int BPF_PROG(lbr_branches) {
   // filtering by pid
   int curr_pid = bpf_get_current_pid_tgid() >> 32;
   if (curr_pid != pid) // pid doesn't match
@@ -33,16 +31,14 @@ int BPF_PROG(lbr_branches)
 
   struct lbr_entry_val_t zero = {};
 
-  for (long i = 0; i < ENTRY_CNT; i++)
-  {
+  for (long i = 0; i < ENTRY_CNT; i++) {
     if (i >= total_entries)
       break;
     struct lbr_entry_key_t entry = {entries[i].from, entries[i].to};
     bpf_printk("entry %llx->%llx", entries[i].from, entries[i].to);
     // atomically increment the count of the entry
     struct lbr_entry_val_t *val = bpf_map_lookup_elem(&agg_lbr_entries, &entry);
-    if (val == NULL)
-    {
+    if (val == NULL) {
       if (bpf_map_update_elem(&agg_lbr_entries, &entry, &zero, BPF_ANY))
         return 1;
       val = bpf_map_lookup_elem(&agg_lbr_entries, &entry);
