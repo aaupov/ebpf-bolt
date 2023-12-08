@@ -13,8 +13,8 @@ app: $(TARGET) $(BPF_OBJ)
 .PHONY: app
 
 $(TARGET): $(USER_C) $(USER_SKEL) $(COMMON_H)
-	gcc -Wall -o $(TARGET) $(USER_C) -L./libbpf/src -l:libbpf.a -lelf -lz \
-	    -I${CURDIR}/libbpf/install/include -I${CURDIR}/libbpf/include
+	$(CC) -Wall -o $(TARGET) $(USER_C) -L./libbpf/src -l:libbpf.a -lelf -lz \
+	    -I${CURDIR}/libbpf/install/include -I${CURDIR}/libbpf/include $(CFLAGS)
 
 %.bpf.o: %.bpf.c vmlinux.h $(COMMON_H)
 	clang \
@@ -36,3 +36,4 @@ clean:
 	- rm $(BPF_OBJ)
 	- rm $(TARGET)
 	- rm $(USER_SKEL)
+	- rm vmlinux.h
