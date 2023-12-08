@@ -12,13 +12,6 @@ struct lbr_entry_key_t {
 };
 
 struct lbr_entry_val_t {
-  //struct bpf_spin_lock lock;
-  unsigned long long count;
-};
-
-struct preagg_entry_t {
-  unsigned long long from;
-  unsigned long long to;
   unsigned long long count;
 };
 
