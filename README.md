@@ -33,6 +33,10 @@ PREFIX=../install make install
 cd ..
 make
 ```
+4. Set tracing capabilities to allow non-root operation: 
+```
+sudo setcap "cap_perfmon=+ep cap_bpf=+ep" ebpf-bolt
+```
 
 ## Usage
 
@@ -58,7 +62,7 @@ Report bugs to https://github.com/aaupov/ebpf-bolt/issues.
 
 Example usage:
 ```
-sudo ./ebpf-bolt -p `pgrep app` > preagg.data
+./ebpf-bolt -p `pgrep app` > preagg.data
 llvm-bolt app --pa -p preagg.data ...
 ```
 Note the `--pa` flag instructing BOLT to read pre-aggregated profile.
