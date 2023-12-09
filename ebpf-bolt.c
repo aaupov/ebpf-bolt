@@ -10,6 +10,7 @@
 #include <asm/unistd.h>
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
+#include <signal.h>
 #include <stdio.h>
 #include <uapi/linux/perf_event.h>
 #include <unistd.h>
@@ -20,6 +21,8 @@ struct env {
   int pid;
   bool verbose;
 } env = {.duration = 10, .freq = 99, .pid = -1, .verbose = 0};
+
+static volatile bool exiting;
 
 const char *argp_program_version = "ebpf-bolt 0.1";
 const char *argp_program_bug_address =
@@ -159,6 +162,11 @@ static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
   return vfprintf(stderr, format, args);
 }
 
+static void sig_handler(int sig)
+{
+  exiting = true;
+}
+
 int main(int argc, char **argv) {
   int i;
   LIBBPF_OPTS(bpf_object_open_opts, open_opts);
@@ -206,9 +214,15 @@ int main(int argc, char **argv) {
   if (err)
     goto cleanup;
 
+  if (env.verbose)
+    fprintf(stderr, "Sampling pid %d for %ld s... Hit Ctrl-C to end.\n",
+            env.pid, env.duration);
+
+  signal(SIGINT, sig_handler);
+
   while (1) {
     sleep(1);
-    if (env.duration-- <= 0)
+    if (exiting || env.duration-- <= 0)
       break;
   }
   // Read maps and print aggregated data
