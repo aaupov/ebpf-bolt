@@ -6,7 +6,7 @@ Output pre-aggregated BOLT profile suitable for optimization (same binary) or co
 This tool achieves much lower total overhead compared to perf sampling thanks to the following:
 1. LBR samples are processed on-the-fly instead of storing samples into a buffer (typically MBs/GBs) for offline parsing and aggregation by separate tools.
 3. LBR parsing and aggregation happen in kernel space eliminating context switches.
-4. Aggregated entries are stored in per-CPU hash tables eliminating atomic increments and cache effects. Accumulation across CPUs occurs once when the profile is dumped.
+4. Aggregated entries are stored in per-CPU hash tables eliminating atomic increments and cache ping-pong effects. Accumulation across CPUs occurs once when the profile is dumped.
 
 ## Prerequisites
 This tool makes use of LBR for 0-overhead sampling and [eBPF CO-RE](https://docs.kernel.org/bpf/libbpf/libbpf_overview.html#bpf-co-re-compile-once-run-everywhere) for portability.
