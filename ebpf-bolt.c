@@ -12,6 +12,7 @@
 #include <bpf/libbpf.h>
 #include <stdio.h>
 #include <uapi/linux/perf_event.h>
+#include <unistd.h>
 
 struct env {
   time_t duration;
@@ -91,9 +92,9 @@ static int open_and_attach_perf_event(int freq, struct bpf_program *prog,
                                       struct bpf_link *links[]) {
   struct perf_event_attr attr = {
       .type = PERF_TYPE_HARDWARE,
-      .freq = 1,
-      .sample_freq = freq,
       .config = PERF_COUNT_HW_CPU_CYCLES,
+      .sample_freq = freq,
+      .freq = 1,
       .branch_sample_type = PERF_SAMPLE_BRANCH_USER,
   };
   int i, fd;
@@ -132,7 +133,8 @@ void cleanup_core_btf(struct bpf_object_open_opts *opts) {
 static void walk_hash_elements(int map_fd, int nr_cpus) {
   struct lbr_entry_key_t *cur_key = NULL;
   struct lbr_entry_key_t next_key;
-  struct lbr_entry_val_t values[nr_cpus];
+  struct lbr_entry_val_t *values = (struct lbr_entry_val_t *)malloc(
+      sizeof(struct lbr_entry_val_t) * nr_cpus);
   int err;
 
   for (;;) {
@@ -147,6 +149,7 @@ static void walk_hash_elements(int map_fd, int nr_cpus) {
       count += values[i].count;
     printf("B %llx %llx %llu 0\n", cur_key->from, cur_key->to, count);
   }
+  free(values);
 }
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
