@@ -229,6 +229,7 @@ int main(int argc, char **argv) {
   }
   /* initialize global data (filtering options) */
   skel->bss->pid = env.pid;
+  skel->bss->verbose = env.verbose;
   err = ebpf_bolt_bpf__load(skel);
   if (err) {
     fprintf(stderr, "failed to load BPF object: %d\n", err);
