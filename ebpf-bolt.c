@@ -10,6 +10,7 @@
 #include <asm/unistd.h>
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <uapi/linux/perf_event.h>
@@ -17,10 +18,11 @@
 
 struct env {
   time_t duration;
+  bool max_freq;
   int freq;
   int pid;
   bool verbose;
-} env = {.duration = 10, .freq = 99, .pid = -1, .verbose = 0};
+} env = {.duration = 10, .max_freq = true, .freq = 99, .pid = -1, .verbose = 0};
 
 static volatile bool exiting;
 
@@ -29,17 +31,28 @@ const char *argp_program_bug_address =
     "https://github.com/aaupov/ebpf-bolt/issues";
 const char argp_program_doc[] =
     "Collect pre-aggregated BOLT profile.\n\n"
-    "USAGE: ebpf-bolt [-f FREQUENCY (99Hz)] -p PID [duration (10s)]\n";
+    "USAGE: ebpf-bolt [-f FREQUENCY (max)] -p PID [duration (10s)]\n";
 
 static const struct argp_option opts[] = {
     {"pid", 'p', "PID", 0, "Sample on this PID only"},
-    {"frequency", 'f', "FREQUENCY", 0, "Sample with a certain frequency"},
+    {"frequency", 'f', "FREQUENCY", 0,
+     "Sample with a certain frequency, integer or `max'"},
     {NULL, 'h', NULL, OPTION_HIDDEN, "Show the full help"},
     {"verbose", 'v', NULL, 0, "Verbose debug output"},
     {},
 };
 
+int read_max_sample_rate() {
+  int max_freq;
+  int fd = open("/proc/sys/kernel/perf_event_max_sample_rate", O_RDONLY);
+  fscanf(fdopen(fd, "r"), "%u", &max_freq);
+  close(fd);
+  return max_freq;
+}
+
 static error_t parse_arg(int key, char *arg, struct argp_state *state) {
+  int max_freq = read_max_sample_rate();
+
   static int pos_args;
 
   switch (key) {
@@ -57,14 +70,22 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state) {
       argp_usage(state);
     }
     break;
-  case 'f':
+  case 'f': {
     errno = 0;
-    env.freq = strtol(arg, NULL, 10);
-    if (errno || env.freq <= 0) {
-      fprintf(stderr, "Invalid freq (in hz): %s\n", arg);
+    if (strncmp(arg, "max", strlen("max")) == 0) {
+      // default behavior, do nothing
+    } else {
+      env.max_freq = false;
+      env.freq = strtol(arg, NULL, 10);
+    }
+    if (errno || env.freq <= 0 || env.freq > max_freq) {
+      fprintf(stderr, "Invalid freq: %s", arg);
+      if (env.freq > max_freq)
+        fprintf(stderr, ": exceeds max_sample_rate %d", max_freq);
+      fprintf(stderr, "\n");
       argp_usage(state);
     }
-    break;
+  } break;
   case ARGP_KEY_ARG:
     errno = 0;
     if (pos_args == 0) {
@@ -83,8 +104,12 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state) {
     return ARGP_ERR_UNKNOWN;
   }
   if (env.pid == -1) {
-    fprintf(stderr, "Please specify either PID\n");
+    fprintf(stderr, "Please specify PID\n");
     argp_usage(state);
+  }
+  if (env.verbose && env.max_freq) {
+    env.freq = max_freq;
+    fprintf(stderr, "Using max_sample_rate from /proc/sys: %d\n", env.freq);
   }
   return 0;
 }
