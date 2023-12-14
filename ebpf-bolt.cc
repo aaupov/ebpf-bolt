@@ -11,8 +11,10 @@
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
 #include <fcntl.h>
+#include <map>
 #include <signal.h>
 #include <stdio.h>
+#include <time.h>
 #include <uapi/linux/perf_event.h>
 #include <unistd.h>
 
@@ -26,7 +28,7 @@ struct env {
 
 static volatile bool exiting;
 
-const char *argp_program_version = "ebpf-bolt 0.1";
+const char *argp_program_version = "ebpf-bolt 0.2";
 const char *argp_program_bug_address =
     "https://github.com/aaupov/ebpf-bolt/issues";
 const char argp_program_doc[] =
@@ -107,9 +109,10 @@ static error_t parse_arg(int key, char *arg, struct argp_state *state) {
     fprintf(stderr, "Please specify PID\n");
     argp_usage(state);
   }
-  if (env.verbose && env.max_freq) {
+  if (env.max_freq) {
     env.freq = max_freq;
-    fprintf(stderr, "Using max_sample_rate from /proc/sys: %d\n", env.freq);
+    if (env.verbose)
+      fprintf(stderr, "Using max_sample_rate from /proc/sys: %d\n", env.freq);
   }
   return 0;
 }
@@ -121,14 +124,16 @@ static int open_and_attach_perf_event(int freq, struct bpf_program *prog,
   struct perf_event_attr attr = {
       .type = PERF_TYPE_HARDWARE,
       .config = PERF_COUNT_HW_CPU_CYCLES,
-      .sample_freq = freq,
+      .sample_freq = (unsigned)freq,
+      .sample_type = PERF_SAMPLE_BRANCH_STACK,
       .freq = 1,
-      .branch_sample_type = PERF_SAMPLE_BRANCH_USER,
+      .branch_sample_type = PERF_SAMPLE_BRANCH_USER | PERF_SAMPLE_BRANCH_ANY,
   };
+  attr.size = sizeof(attr);
   int i, fd;
 
   for (i = 0; i < nr_cpus; i++) {
-    fd = syscall(__NR_perf_event_open, &attr, -1, i, -1, 0);
+    fd = syscall(__NR_perf_event_open, &attr, env.pid, i, -1, 0);
     if (fd < 0) {
       /* Ignore CPU that is offline */
       if (errno == ENODEV)
@@ -158,26 +163,37 @@ void cleanup_core_btf(struct bpf_object_open_opts *opts) {
   free((void *)opts->btf_custom_path);
 }
 
-static void walk_hash_elements(int map_fd, int nr_cpus) {
-  struct lbr_entry_key_t *cur_key = NULL;
-  struct lbr_entry_key_t next_key;
-  struct lbr_entry_val_t *values = (struct lbr_entry_val_t *)malloc(
-      sizeof(struct lbr_entry_val_t) * nr_cpus);
-  int err;
+typedef std::pair<unsigned long long, unsigned long long> preagg_entry_key_t;
+struct preagg_entry_val_t {
+  unsigned long long count{0}, mispred{0};
+};
 
-  for (;;) {
-    err = bpf_map_get_next_key(map_fd, cur_key, &next_key);
-    if (err)
-      break;
+typedef std::map<preagg_entry_key_t, preagg_entry_val_t> preagg_map_t;
 
-    bpf_map_lookup_elem(map_fd, &next_key, values);
-    cur_key = &next_key;
-    unsigned long long count = 0;
-    for (int i = 0; i < nr_cpus; ++i)
-      count += values[i].count;
-    printf("B %llx %llx %llu 0\n", cur_key->from, cur_key->to, count);
+struct ctx_s {
+  preagg_map_t preagg;
+  long events = 0;
+};
+
+int handle_event(void *ctx, void *data, size_t data_sz) {
+  ctx_s *preagg_ctx = static_cast<ctx_s *>(ctx);
+  ++preagg_ctx->events;
+  const struct event *e = reinterpret_cast<struct event *>(data);
+  long entries = e->size / sizeof(event::entry_t);
+  for (int i = 0; i < entries; ++i) {
+    preagg_entry_key_t key{e->entries[i].from, e->entries[i].to};
+    preagg_ctx->preagg[key].count++;
+    if (e->entries[i].flags.mispred)
+      preagg_ctx->preagg[key].mispred++;
   }
-  free(values);
+  return 0;
+}
+
+void print_aggregated(ctx_s &preagg_ctx) {
+  fprintf(stderr, "%ld events\n", preagg_ctx.events);
+  for (auto &&[key, val] : preagg_ctx.preagg)
+    printf("B %llx %llx %llu %llu\n", key.first, key.second, val.count,
+           val.mispred);
 }
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
@@ -192,6 +208,12 @@ static void sig_handler(int sig)
   exiting = true;
 }
 
+static time_t time_get_s(void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return ts.tv_sec;
+}
+
 int main(int argc, char **argv) {
   int i;
   LIBBPF_OPTS(bpf_object_open_opts, open_opts);
@@ -201,6 +223,7 @@ int main(int argc, char **argv) {
       .doc = argp_program_doc,
   };
   struct bpf_link *links[MAX_CPU_NR] = {};
+  struct ring_buffer *rb = NULL;
 
   struct ebpf_bolt_bpf *skel;
   int err = 0;
@@ -208,9 +231,13 @@ int main(int argc, char **argv) {
   if (err)
     return err;
 
+  ctx_s preagg_ctx;
+  time_t start;
+
   nr_cpus = libbpf_num_possible_cpus();
   if (nr_cpus < 0) {
-    printf("failed to get # of possible cpus: '%s'!\n", strerror(-nr_cpus));
+    fprintf(stderr, "failed to get # of possible cpus: '%s'!\n",
+            strerror(-nr_cpus));
     return 1;
   }
   if (nr_cpus > MAX_CPU_NR) {
@@ -227,9 +254,6 @@ int main(int argc, char **argv) {
     fprintf(stderr, "failed to open BPF object\n");
     return 1;
   }
-  /* initialize global data (filtering options) */
-  skel->bss->pid = env.pid;
-  skel->bss->verbose = env.verbose;
   err = ebpf_bolt_bpf__load(skel);
   if (err) {
     fprintf(stderr, "failed to load BPF object: %d\n", err);
@@ -240,24 +264,46 @@ int main(int argc, char **argv) {
   if (err)
     goto cleanup;
 
+  /* Set up ring buffer polling */
+  rb = ring_buffer__new(bpf_map__fd(skel->maps.rb), handle_event, &preagg_ctx,
+                        NULL);
+  if (!rb) {
+    err = -1;
+    fprintf(stderr, "Failed to create ring buffer\n");
+    goto cleanup;
+  }
+
   if (env.verbose)
     fprintf(stderr, "Sampling pid %d for %ld s... Hit Ctrl-C to end.\n",
             env.pid, env.duration);
 
   signal(SIGINT, sig_handler);
 
+  start = time_get_s();
+
   while (1) {
-    sleep(1);
-    if (exiting || env.duration-- <= 0)
+    err = ring_buffer__poll(rb, 1000 /* timeout, ms */);
+    /* Ctrl-C will cause -EINTR */
+    if (err == -EINTR) {
+      err = 0;
+      break;
+    } else if (err < 0) {
+      fprintf(stderr, "Error polling ring buffer: %s\n", strerror(-err));
+      goto cleanup;
+    }
+    if (time_get_s() >= start + env.duration)
+      break;
+    if (exiting)
       break;
   }
   // Read maps and print aggregated data
-  walk_hash_elements(bpf_map__fd(skel->maps.agg_lbr_entries), nr_cpus);
+  print_aggregated(preagg_ctx);
 cleanup:
   for (i = 0; i < nr_cpus; i++)
     bpf_link__destroy(links[i]);
+  ring_buffer__free(rb);
   ebpf_bolt_bpf__destroy(skel);
   cleanup_core_btf(&open_opts);
 
-  return err != 0;
+  return err;
 }

@@ -4,7 +4,7 @@ ARCH = x86
 
 BPF_OBJ = ${TARGET:=.bpf.o}
 
-USER_C = ${TARGET:=.c}
+USER_CC = ${TARGET:=.cc}
 USER_SKEL = ${TARGET:=.skel.h}
 
 COMMON_H = ${TARGET:=.h}
@@ -12,9 +12,9 @@ COMMON_H = ${TARGET:=.h}
 app: $(TARGET) $(BPF_OBJ)
 .PHONY: app
 
-$(TARGET): $(USER_C) $(USER_SKEL) $(COMMON_H)
-	$(CC) -Wall -o $(TARGET) $(USER_C) -L./libbpf/src -l:libbpf.a -lelf -lz \
-	    -I${CURDIR}/libbpf/install/include -I${CURDIR}/libbpf/include $(CFLAGS)
+$(TARGET): $(USER_CC) $(USER_SKEL) $(COMMON_H)
+	$(CXX) -Wall -o $(TARGET) $(USER_CC) -L./libbpf/src -l:libbpf.a -lelf -lz \
+	    -I${CURDIR}/libbpf/install/include -I${CURDIR}/libbpf/include $(CXXFLAGS)
 
 %.bpf.o: %.bpf.c vmlinux.h $(COMMON_H)
 	clang \
