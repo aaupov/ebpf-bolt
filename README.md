@@ -3,10 +3,10 @@ Collect and aggregate LBR samples using eBPF with minimal profiling overhead.
 
 Output pre-aggregated BOLT profile suitable for optimization (same binary) or conversion to other profile formats (fdata or YAML) that tolerate binary differences.
 
-This tool achieves much lower total overhead compared to perf sampling thanks to the following:
-1. LBR samples are processed on-the-fly instead of storing samples into a buffer (typically MBs/GBs) for offline parsing and aggregation by separate tools.
-3. LBR parsing and aggregation happen in kernel space eliminating context switches.
-4. Aggregated entries are stored in per-CPU hash tables eliminating atomic increments and cache ping-pong effects. Accumulation across CPUs occurs once when the profile is dumped.
+This tool enables quicker profiling + optimization turnaround time thanks to processing LBR samples on the fly and producing pre-aggregated profile at the end of profiling step, ready to be directly consumed by BOLT. 
+
+## Limitations
+At the moment, this tool doesn't handle memory mappings, making it unsuitable for collecting profile for shared libraries and PIE executables.
 
 ## Prerequisites
 This tool makes use of LBR for 0-overhead sampling and [eBPF CO-RE](https://docs.kernel.org/bpf/libbpf/libbpf_overview.html#bpf-co-re-compile-once-run-everywhere) for portability.
@@ -48,7 +48,7 @@ $ ./ebpf-bolt -h
 Usage: ebpf-bolt [OPTION...]
 Collect pre-aggregated BOLT profile.
 
-USAGE: ebpf-bolt [-f FREQUENCY (99Hz)] -p PID [duration (10s)]
+USAGE: ebpf-bolt [-f FREQUENCY (max)] -p PID [duration (10s)]
 
   -f, --frequency=FREQUENCY  Sample with a certain frequency
   -p, --pid=PID              Sample on this PID only
@@ -69,3 +69,27 @@ Example usage:
 llvm-bolt app --pa -p preagg.data ...
 ```
 Note the `--pa` flag instructing BOLT to read pre-aggregated profile.
+
+## Showcases
+
+### Profiling, perf record vs ebpf-bolt
+Collecting the profile for Clang for 10 seconds with sampling frequency of 6000 Hz, average of 5 runs:
+|           | Samples | User time | System time | CPU usage | Max RSS |
+| --------- | ------: | --------: | ----------: | --------: | ------: |
+| perf record | 59133.2 |    0.40s |      0.27s |      5.0% | 104.5MB |
+| ebpf-bolt | 58806.6 |      0.36s |      0.22s |      5.4% |  14.7MB |
+|           | **-0.6%** | **-10.1%** | **-17.3%** | **+8.0%** | **-85.9%** |
+
+Summary: profiling with ebpf-bolt still has minimal overhead in terms of CPU usage, similar to `perf record`. 
+Peak memory usage during profiling is reduced significantly (104.5MB -> 14.7MB, -85.9%).
+ebpf-bolt collects a similar number of LBR samples, resulting in equivalent profile quantity and quality.
+
+### BOLT processing time, perf.data vs pre-aggregated profile
+When perf profile is processed by BOLT, it's parsed using `perf script` commands.
+No extra processing is needed for pre-aggregated profile produced by ebpf-bolt.
+
+|                 | Pre-process profile | Process profile | Total rewrite time |
+| --------------- | ------------------: | --------------: | -----------------: |
+| perf.data       |               7.26s |           7.29s |            140.58s |
+| pre-aggregated  |               0.42s |           6.38s |            132.43s |
+|                 |          **-94.2%** |      **-12.4%** |          **-5.8%** |
