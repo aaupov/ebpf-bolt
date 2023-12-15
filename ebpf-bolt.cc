@@ -11,12 +11,13 @@
 #include <bpf/bpf.h>
 #include <bpf/libbpf.h>
 #include <fcntl.h>
-#include <map>
+#include <unordered_map>
 #include <signal.h>
 #include <stdio.h>
 #include <time.h>
 #include <uapi/linux/perf_event.h>
 #include <unistd.h>
+#include <xxhash.h>
 
 struct env {
   time_t duration;
@@ -168,7 +169,15 @@ struct preagg_entry_val_t {
   unsigned long long count{0}, mispred{0};
 };
 
-typedef std::map<preagg_entry_key_t, preagg_entry_val_t> preagg_map_t;
+struct preagg_entry_key_hash {
+  size_t operator()(const preagg_entry_key_t &key) const {
+    return XXH3_64bits(&key, sizeof(preagg_entry_key_t));
+  }
+};
+
+typedef std::unordered_map<preagg_entry_key_t, preagg_entry_val_t,
+                           preagg_entry_key_hash>
+    preagg_map_t;
 
 struct ctx_s {
   preagg_map_t preagg;
@@ -182,9 +191,10 @@ int handle_event(void *ctx, void *data, size_t data_sz) {
   long entries = e->size / sizeof(event::entry_t);
   for (int i = 0; i < entries; ++i) {
     preagg_entry_key_t key{e->entries[i].from, e->entries[i].to};
-    preagg_ctx->preagg[key].count++;
+    preagg_entry_val_t &val = preagg_ctx->preagg[key];
+    ++val.count;
     if (e->entries[i].flags.mispred)
-      preagg_ctx->preagg[key].mispred++;
+      ++val.mispred;
   }
   return 0;
 }

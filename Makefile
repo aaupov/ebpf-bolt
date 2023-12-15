@@ -13,7 +13,7 @@ app: $(TARGET) $(BPF_OBJ)
 .PHONY: app
 
 $(TARGET): $(USER_CC) $(USER_SKEL) $(COMMON_H)
-	$(CXX) -Wall -o $(TARGET) $(USER_CC) -L./libbpf/src -l:libbpf.a -lelf -lz \
+	$(CXX) -Wall -o $(TARGET) $(USER_CC) -L./libbpf/src -l:libbpf.a -lelf -lz -lxxhash \
 	    -I${CURDIR}/libbpf/install/include -I${CURDIR}/libbpf/include $(CXXFLAGS)
 
 %.bpf.o: %.bpf.c vmlinux.h $(COMMON_H)
