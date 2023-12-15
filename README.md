@@ -74,11 +74,11 @@ Note the `--pa` flag instructing BOLT to read pre-aggregated profile.
 
 ### Profiling, perf record vs ebpf-bolt
 Collecting the profile for Clang for 10 seconds with sampling frequency of 6000 Hz, average of 5 runs:
-|           | Samples | User time | System time | CPU usage | Max RSS |
-| --------- | ------: | --------: | ----------: | --------: | ------: |
-| perf record | 59133.2 |    0.40s |      0.27s |      5.0% | 104.5MB |
-| ebpf-bolt | 58806.6 |      0.36s |      0.22s |      5.4% |  14.7MB |
-|           | **-0.6%** | **-10.1%** | **-17.3%** | **+8.0%** | **-85.9%** |
+|           | Samples | User time | System time | CPU usage | Max RSS | File size |
+| --------- | ------: | --------: | ----------: | --------: | ------: | --------: |
+| perf record | 59133.2 |    0.40s |      0.27s |      5.0% | 104.5MB |      47MB |
+| ebpf-bolt | 58806.6 |      0.36s |      0.22s |      5.4% |  14.7MB |     2.1MB |
+|           | **-0.6%** | **-10.1%** | **-17.3%** | **+8.0%** | **-85.9%** | **-95.5%** |
 
 Summary: profiling with ebpf-bolt still has minimal overhead in terms of CPU usage, similar to `perf record`. 
 Peak memory usage during profiling is reduced significantly (104.5MB -> 14.7MB, -85.9%).
