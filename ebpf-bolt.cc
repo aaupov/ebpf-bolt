@@ -8,12 +8,10 @@
 #include "ebpf-bolt.skel.h"
 #include <argp.h>
 #include <asm/unistd.h>
-#include <bpf/bpf.h>
 #include <bpf/libbpf.h>
 #include <fcntl.h>
 #include <unordered_map>
 #include <signal.h>
-#include <stdio.h>
 #include <time.h>
 #include <uapi/linux/perf_event.h>
 #include <unistd.h>
@@ -180,7 +178,8 @@ typedef std::unordered_map<preagg_entry_key_t, preagg_entry_val_t,
     preagg_map_t;
 
 struct ctx_s {
-  preagg_map_t preagg;
+  preagg_map_t branches;
+  preagg_map_t traces;
   long events = 0;
 };
 
@@ -191,19 +190,26 @@ int handle_event(void *ctx, void *data, size_t data_sz) {
   long entries = e->size / sizeof(event::entry_t);
   for (int i = 0; i < entries; ++i) {
     preagg_entry_key_t key{e->entries[i].from, e->entries[i].to};
-    preagg_entry_val_t &val = preagg_ctx->preagg[key];
+    preagg_entry_val_t &val = preagg_ctx->branches[key];
     ++val.count;
     if (e->entries[i].flags.mispred)
       ++val.mispred;
+    if (i != entries - 1) {
+      // LBR is a stack, so entries are in reverse
+      preagg_entry_key_t trace_key{e->entries[i + 1].to, e->entries[i].from};
+      ++preagg_ctx->traces[trace_key].count;
+    }
   }
   return 0;
 }
 
 void print_aggregated(ctx_s &preagg_ctx) {
   fprintf(stderr, "%ld events\n", preagg_ctx.events);
-  for (auto &&[key, val] : preagg_ctx.preagg)
+  for (auto &&[key, val] : preagg_ctx.branches)
     printf("B %llx %llx %llu %llu\n", key.first, key.second, val.count,
            val.mispred);
+  for (auto &&[key, val] : preagg_ctx.traces)
+    printf("F %llx %llx %llu\n", key.first, key.second, val.count);
 }
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
