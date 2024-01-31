@@ -224,10 +224,12 @@ static void sig_handler(int sig)
   exiting = true;
 }
 
-static time_t time_get_s(void) {
-  struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return ts.tv_sec;
+static int64_t diff_s(const struct timespec &start,
+                      const struct timespec &end) {
+  time_t seconds = end.tv_sec - start.tv_sec;
+  if (end.tv_nsec < start.tv_nsec)
+    --seconds;
+  return seconds;
 }
 
 int main(int argc, char **argv) {
@@ -248,7 +250,6 @@ int main(int argc, char **argv) {
     return err;
 
   ctx_s preagg_ctx;
-  time_t start;
 
   nr_cpus = libbpf_num_possible_cpus();
   if (nr_cpus < 0) {
@@ -295,7 +296,8 @@ int main(int argc, char **argv) {
 
   signal(SIGINT, sig_handler);
 
-  start = time_get_s();
+  struct timespec start_ts, curr_ts;
+  clock_gettime(CLOCK_MONOTONIC, &start_ts);
 
   while (1) {
     err = ring_buffer__poll(rb, 1000 /* timeout, ms */);
@@ -307,7 +309,8 @@ int main(int argc, char **argv) {
       fprintf(stderr, "Error polling ring buffer: %s\n", strerror(-err));
       goto cleanup;
     }
-    if (time_get_s() >= start + env.duration)
+    clock_gettime(CLOCK_MONOTONIC, &curr_ts);
+    if (diff_s(start_ts, curr_ts) >= env.duration)
       break;
     if (exiting)
       break;
