@@ -73,16 +73,21 @@ Note the `--pa` flag instructing BOLT to read pre-aggregated profile.
 ## Showcases
 
 ### Profiling, perf record vs ebpf-bolt
-Collecting the profile for Clang for 10 seconds with sampling frequency of 6000 Hz, average of 5 runs:
+Collecting the profile for Clang for 10 seconds with sampling frequency of 5000 Hz, average of 5 runs:
 |           | Samples | User time | System time | CPU usage | Max RSS | File size |
 | --------- | ------: | --------: | ----------: | --------: | ------: | --------: |
-| perf record | 59133.2 |    0.40s |      0.27s |      5.0% | 104.5MB |      47MB |
-| ebpf-bolt | 58806.6 |      0.36s |      0.22s |      5.4% |  14.7MB |     2.1MB |
-|           | **-0.6%** | **-10.1%** | **-17.3%** | **+0.4pp** | **-85.9%** | **-95.5%** |
+| perf record | 49304±25 | 0.40±0.02s | 0.27±0.01s | 5.4±0.5% | 96.8±0.2MB | 39.2MB |
+| ebpf-bolt   | 49306±94 | 0.56±0.03s | 0.18±0.01s | 7.0±0.0% | 17.7±0.1MB |  3.4MB |
+|             | **=**    | **+0.16s** | **-0.09s** | **+1.6pp** | **-81.7%** | **-91.3%** |
 
-Summary: profiling with ebpf-bolt still has minimal overhead in terms of CPU usage, similar to `perf record`. 
-Peak memory usage during profiling is reduced significantly (104.5MB -> 14.7MB, -85.9%).
-ebpf-bolt collects a similar number of LBR samples, resulting in equivalent profile quantity and quality.
+Summary:
+ - Profiling with ebpf-bolt still has minimal overhead in terms of CPU usage, similar to `perf record`.
+ - Peak memory usage during profiling is reduced significantly (96.8MB -> 17.7MB, -82%).
+ - ebpf-bolt collects the same number of LBR samples, but produces a much
+   smaller output file (39.2MB -> 3.4MB, -91%).
+ - Slightly higher user time (+0.16s) in ebpf-bolt compared to perf is due to
+   parsing and aggregating LBR samples, but these steps are eliminated from
+   profile preprocessing in BOLT (-6.84s), which saves time overall.
 
 ### BOLT processing time, perf.data vs pre-aggregated profile
 When perf profile is processed by BOLT, it's parsed using `perf script` commands.
@@ -92,4 +97,4 @@ No extra processing is needed for pre-aggregated profile produced by ebpf-bolt.
 | --------------- | ------------------: | --------------: | -----------------: |
 | perf.data       |               7.26s |           7.29s |            140.58s |
 | pre-aggregated  |               0.42s |           6.38s |            132.43s |
-|                 |          **-94.2%** |      **-12.4%** |          **-5.8%** |
+|                 |          **-6.84s** |      **-0.91s** |         **-8.15s** |
