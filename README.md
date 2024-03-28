@@ -1,12 +1,12 @@
 # ebpf-bolt: eBPF tool to collect BOLT profile
 Collect and aggregate LBR samples using eBPF with minimal profiling overhead.
 
-Output pre-aggregated BOLT profile suitable for optimization (same binary) or conversion to other profile formats (fdata or YAML) that tolerate binary differences.
+Output pre-aggregated BOLT profile suitable for optimizing the profiled binary or converting to other profile formats (fdata or YAML) that can be used with a different binary.
 
 This tool enables quicker profiling + optimization turnaround time thanks to processing LBR samples on the fly and producing pre-aggregated profile at the end of profiling step, ready to be directly consumed by BOLT. 
 
 ## Limitations
-At the moment, this tool doesn't handle memory mappings, making it unsuitable for collecting profile for shared libraries and PIE executables.
+At the moment, this tool doesn't handle memory mappings, making it unsuitable for collecting profile for shared libraries and PIE executables on ASLR-enabled systems.
 
 ## Prerequisites
 This tool makes use of LBR for 0-overhead sampling and [eBPF CO-RE](https://docs.kernel.org/bpf/libbpf/libbpf_overview.html#bpf-co-re-compile-once-run-everywhere) for portability.
