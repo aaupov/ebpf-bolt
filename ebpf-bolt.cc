@@ -209,12 +209,12 @@ void print_aggregated(unsigned long base_addr) {
     unsigned long long branch = key.branch - base_addr;
     unsigned long long from = key.from - base_addr;
     if (key.to == -1ULL)
-      printf("B %lx %lx", branch, from);
+      printf("B %llx %llx %llu %llu\n", branch, from, val.count, val.mispred);
     else {
       unsigned long long to = key.to - base_addr;
-      printf("T %lx %lx %lx", branch, from, to);
+      printf("T %llx %llx %llx %llu\n", branch, from, to, val.count);
     }
-    printf(" %lu %lu %lu\n", val.count, val.mispred, val.cycles);
+    // cycles are not printed
   }
 }
 
@@ -269,72 +269,76 @@ bool is_pie_executable(int pid) {
   struct stat st;
   if (lstat(exe_path.c_str(), &st) == -1) {
     fprintf(stderr, "Failed to stat %s\n", exe_path.c_str());
-    return false;
+    exit(1);
   }
   // Open the ELF file
   FILE *f = fopen(exe_path.c_str(), "rb");
   if (!f) {
     fprintf(stderr, "Failed to open %s\n", exe_path.c_str());
-    return false;
+    exit(1);
   }
   unsigned char e_ident[EI_NIDENT];
   if (fread(e_ident, 1, EI_NIDENT, f) != EI_NIDENT) {
     fclose(f);
-    return false;
+    fprintf(stderr, "Failed to read e_ident from %s\n", exe_path.c_str());
+    exit(1);
   }
   if (e_ident[EI_CLASS] != ELFCLASS64) {
     fclose(f);
     fprintf(stderr, "Only ELF64 is supported (BOLT limitation)\n");
-    return false;
+    exit(1);
   }
   fseek(f, 0, SEEK_SET);
   Elf64_Ehdr ehdr;
   if (fread(&ehdr, 1, sizeof(ehdr), f) != sizeof(ehdr)) {
     fclose(f);
+    fprintf(stderr, "Failed to read ehdr from %s\n", exe_path.c_str());
+    exit(1);
+  }
+  if (ehdr.e_type != ET_DYN) {
+    fclose(f);
+    if (env.verbose)
+      fprintf(stderr, "non-ET_DYN\n");
     return false;
   }
-  if (ehdr.e_type == ET_DYN) {
-    // Find dynamic section
-    fseek(f, ehdr.e_phoff, SEEK_SET);
-    for (int i = 0; i < ehdr.e_phnum; ++i) {
-      Elf64_Phdr phdr;
-      if (fread(&phdr, 1, sizeof(phdr), f) != sizeof(phdr)) break;
-      if (phdr.p_type == PT_DYNAMIC) {
-        size_t dyn_count = phdr.p_filesz / sizeof(Elf64_Dyn);
-        fseek(f, phdr.p_offset, SEEK_SET);
-        for (size_t j = 0; j < dyn_count; ++j) {
-          Elf64_Dyn dyn;
-          if (fread(&dyn, 1, sizeof(dyn), f) != sizeof(dyn)) break;
-          if (dyn.d_tag == DT_FLAGS_1) {
-            if (dyn.d_un.d_val & DF_1_PIE) {
-              fclose(f);
-              printf("pie executable\n");
-              return true;
-            } else {
-              fclose(f);
-              printf("shared object\n");
-              return false;
-            }
-          }
-        }
+
+  // Find dynamic section
+  fseek(f, ehdr.e_phoff, SEEK_SET);
+  for (int i = 0; i < ehdr.e_phnum; ++i) {
+    Elf64_Phdr phdr;
+    if (fread(&phdr, 1, sizeof(phdr), f) != sizeof(phdr)) break;
+    if (phdr.p_type != PT_DYNAMIC)
+      continue;
+    size_t dyn_count = phdr.p_filesz / sizeof(Elf64_Dyn);
+    fseek(f, phdr.p_offset, SEEK_SET);
+    for (size_t j = 0; j < dyn_count; ++j) {
+      Elf64_Dyn dyn;
+      if (fread(&dyn, 1, sizeof(dyn), f) != sizeof(dyn)) break;
+      if (dyn.d_tag != DT_FLAGS_1)
+        continue;
+      if (dyn.d_un.d_val & DF_1_PIE) {
+        fclose(f);
+        if (env.verbose)
+          fprintf(stderr, "DF_1_PIE\n");
+        return true;
+      } else {
+        fclose(f);
+        if (env.verbose)
+          fprintf(stderr, "non-DF_1_PIE\n");
+        return false;
       }
     }
-    // If ET_DYN but no DT_FLAGS_1, check executable bit
-    if (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) {
-      fclose(f);
-      printf("pie executable\n");
-      return true;
-    }
-    fclose(f);
-    printf("shared object\n");
-    return false;
   }
-  fclose(f);
-  // If not ET_DYN, check executable bit
+  // If ET_DYN but no DT_FLAGS_1, check executable bit
   if (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) {
-    printf("pie executable\n");
+    fclose(f);
+    if (env.verbose)
+      fprintf(stderr, "ET_DYN executable with no DT_FLAGS_1\n");
     return true;
   }
+  fclose(f);
+  if (env.verbose)
+    fprintf(stderr, "regular shared object\n");
   return false;
 }
 
@@ -359,6 +363,7 @@ int main(int argc, char **argv) {
   bool is_pie = is_pie_executable(env.pid);
   unsigned long base_addr = 0;
   if (is_pie) {
+    fprintf(stderr, "PIE executable\n");
     base_addr = get_base_address(env.pid);
     if (env.verbose)
       fprintf(stderr, "Base address for PID %d: 0x%lx\n", env.pid, base_addr);
