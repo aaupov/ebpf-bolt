@@ -32,7 +32,7 @@ struct env {
 
 static volatile bool exiting;
 
-const char *argp_program_version = "ebpf-bolt 0.2";
+const char *argp_program_version = "ebpf-bolt 0.3";
 const char *argp_program_bug_address =
     "https://github.com/aaupov/ebpf-bolt/issues";
 const char argp_program_doc[] =
@@ -167,9 +167,12 @@ void cleanup_core_btf(struct bpf_object_open_opts *opts) {
   free((void *)opts->btf_custom_path);
 }
 
-typedef std::pair<unsigned long long, unsigned long long> preagg_entry_key_t;
+struct preagg_entry_key_t {
+  unsigned long long branch, from, to;
+  bool operator==(const preagg_entry_key_t &O) const = default;
+};
 struct preagg_entry_val_t {
-  unsigned long long count{0}, mispred{0};
+  unsigned long long count{0}, mispred{0}, cycles{0};
 };
 
 struct preagg_entry_key_hash {
@@ -183,38 +186,39 @@ typedef std::unordered_map<preagg_entry_key_t, preagg_entry_val_t,
     preagg_map_t;
 
 struct ctx_s {
-  preagg_map_t branches;
   preagg_map_t traces;
-  long events = 0;
 };
 
 int handle_event(void *ctx, void *data, size_t data_sz) {
   ctx_s *preagg_ctx = static_cast<ctx_s *>(ctx);
-  ++preagg_ctx->events;
   const struct event *e = reinterpret_cast<struct event *>(data);
   long entries = e->size / sizeof(event::entry_t);
   for (int i = 0; i < entries; ++i) {
-    preagg_entry_key_t key{e->entries[i].from, e->entries[i].to};
-    preagg_entry_val_t &val = preagg_ctx->branches[key];
+    uint16_t cycles = 0;
+    uint64_t ft_end = -1ULL;
+    if (i + 1 != entries) {
+      ft_end = e->entries[i + 1].from;
+      cycles = e->entries[i + 1].flags.cycles;
+    }
+    preagg_entry_key_t key{e->entries[i].from, e->entries[i].to, ft_end};
+    preagg_entry_val_t &val = preagg_ctx->traces[key];
     ++val.count;
     if (e->entries[i].flags.mispred)
       ++val.mispred;
-    if (i != entries - 1) {
-      // LBR is a stack, so entries are in reverse
-      preagg_entry_key_t trace_key{e->entries[i + 1].to, e->entries[i].from};
-      ++preagg_ctx->traces[trace_key].count;
-    }
+    val.cycles += cycles;
   }
   return 0;
 }
 
 void print_aggregated(ctx_s &preagg_ctx) {
-  fprintf(stderr, "%ld events\n", preagg_ctx.events);
-  for (auto &&[key, val] : preagg_ctx.branches)
-    printf("B %llx %llx %llu %llu\n", key.first, key.second, val.count,
-           val.mispred);
-  for (auto &&[key, val] : preagg_ctx.traces)
-    printf("F %llx %llx %llu\n", key.first, key.second, val.count);
+  fprintf(stderr, "%ld traces\n", preagg_ctx.traces.size());
+  for (auto &&[key, val] : preagg_ctx.traces) {
+    if (key.to == -1ULL)
+      printf("B %lx %lx", key.branch, key.from);
+    else
+      printf("T %lx %lx %lx", key.branch, key.from, key.to);
+    printf(" %lu %lu %lu\n", val.count, val.mispred, val.cycles);
+  }
 }
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format,

@@ -1,7 +1,7 @@
 # Based off github.com/lizrice/learning-ebpf
 TARGET = ebpf-bolt
 ARCH = x86
-
+CXXFLAGS = -O3 -Wall -std=c++20
 BPF_OBJ = ${TARGET:=.bpf.o}
 
 USER_CC = ${TARGET:=.cc}
@@ -13,8 +13,9 @@ app: $(TARGET) $(BPF_OBJ)
 .PHONY: app
 
 $(TARGET): $(USER_CC) $(USER_SKEL) $(COMMON_H)
-	$(CXX) -Wall -o $(TARGET) $(USER_CC) -L./libbpf/src -l:libbpf.a -lelf -lz -lxxhash \
-	    -I${CURDIR}/libbpf/install/include -I${CURDIR}/libbpf/include $(CXXFLAGS)
+	$(CXX) $(CXXFLAGS) -o $(TARGET) $(USER_CC) \
+            -L./libbpf/src -l:libbpf.a -lelf -lz -lxxhash \
+            -I${CURDIR}/libbpf/install/include -I${CURDIR}/libbpf/include
 
 %.bpf.o: %.bpf.c vmlinux.h $(COMMON_H)
 	clang \
