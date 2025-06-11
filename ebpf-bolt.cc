@@ -167,30 +167,24 @@ void cleanup_core_btf(struct bpf_object_open_opts *opts) {
   free((void *)opts->btf_custom_path);
 }
 
-struct preagg_entry_key_t {
+struct trace_t {
   unsigned long long branch, from, to;
-  bool operator==(const preagg_entry_key_t &O) const = default;
+  bool operator==(const trace_t &O) const = default;
 };
-struct preagg_entry_val_t {
+struct counters_t {
   unsigned long long count{0}, mispred{0}, cycles{0};
 };
-
-struct preagg_entry_key_hash {
-  size_t operator()(const preagg_entry_key_t &key) const {
-    return XXH3_64bits(&key, sizeof(preagg_entry_key_t));
+struct trace_hash {
+  size_t operator()(const trace_t &key) const {
+    return XXH3_64bits(&key, sizeof(trace_t));
   }
 };
 
-typedef std::unordered_map<preagg_entry_key_t, preagg_entry_val_t,
-                           preagg_entry_key_hash>
-    preagg_map_t;
-
-struct ctx_s {
-  preagg_map_t traces;
-};
+typedef std::unordered_map<trace_t, counters_t, trace_hash> agg_map_t;
+agg_map_t traces;
 
 int handle_event(void *ctx, void *data, size_t data_sz) {
-  ctx_s *preagg_ctx = static_cast<ctx_s *>(ctx);
+  agg_map_t &traces = *static_cast<agg_map_t *>(ctx);
   const struct event *e = reinterpret_cast<struct event *>(data);
   long entries = e->size / sizeof(event::entry_t);
   for (int i = 0; i < entries; ++i) {
@@ -200,19 +194,18 @@ int handle_event(void *ctx, void *data, size_t data_sz) {
       ft_end = e->entries[i + 1].from;
       cycles = e->entries[i + 1].flags.cycles;
     }
-    preagg_entry_key_t key{e->entries[i].from, e->entries[i].to, ft_end};
-    preagg_entry_val_t &val = preagg_ctx->traces[key];
-    ++val.count;
-    if (e->entries[i].flags.mispred)
-      ++val.mispred;
-    val.cycles += cycles;
+    trace_t trace{e->entries[i].from, e->entries[i].to, ft_end};
+    counters_t &cnt = traces[trace];
+    ++cnt.count;
+    cnt.mispred += e->entries[i].flags.mispred;
+    cnt.cycles += cycles;
   }
   return 0;
 }
 
-void print_aggregated(ctx_s &preagg_ctx) {
-  fprintf(stderr, "%ld traces\n", preagg_ctx.traces.size());
-  for (auto &&[key, val] : preagg_ctx.traces) {
+void print_aggregated() {
+  fprintf(stderr, "%ld traces\n", traces.size());
+  for (auto &&[key, val] : traces) {
     if (key.to == -1ULL)
       printf("B %lx %lx", key.branch, key.from);
     else
@@ -367,8 +360,6 @@ int main(int argc, char **argv) {
       fprintf(stderr, "Base address for PID %d: 0x%lx\n", env.pid, base_addr);
   }
 
-  ctx_s preagg_ctx;
-
   nr_cpus = libbpf_num_possible_cpus();
   if (nr_cpus < 0) {
     fprintf(stderr, "failed to get # of possible cpus: '%s'!\n",
@@ -400,7 +391,7 @@ int main(int argc, char **argv) {
     goto cleanup;
 
   /* Set up ring buffer polling */
-  rb = ring_buffer__new(bpf_map__fd(skel->maps.rb), handle_event, &preagg_ctx,
+  rb = ring_buffer__new(bpf_map__fd(skel->maps.rb), handle_event, &traces,
                         NULL);
   if (!rb) {
     err = -1;
@@ -434,7 +425,7 @@ int main(int argc, char **argv) {
       break;
   }
   // Read maps and print aggregated data
-  print_aggregated(preagg_ctx);
+  print_aggregated();
 cleanup:
   for (i = 0; i < nr_cpus; i++)
     bpf_link__destroy(links[i]);
