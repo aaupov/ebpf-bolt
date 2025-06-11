@@ -6,7 +6,9 @@ Output pre-aggregated BOLT profile suitable for optimizing the profiled binary o
 This tool enables quicker profiling + optimization turnaround time thanks to processing LBR samples on the fly and producing pre-aggregated profile at the end of profiling step, ready to be directly consumed by BOLT. 
 
 ## Limitations
-At the moment, this tool doesn't handle memory mappings, making it unsuitable for collecting profile for shared libraries and PIE executables on ASLR-enabled systems.
+1. Collecting the profile for shared libraries is not yet supported (perf2bolt limitation).
+2. PIE support is experimental.
+3. Only ELF64 (64-bit) binaries are supported. ELF32 (32-bit) binaries are not supported (BOLT limitation).
 
 ## Prerequisites
 This tool makes use of LBR for 0-overhead sampling and [eBPF CO-RE](https://docs.kernel.org/bpf/libbpf/libbpf_overview.html#bpf-co-re-compile-once-run-everywhere) for portability.

@@ -16,6 +16,11 @@
 #include <uapi/linux/perf_event.h>
 #include <unistd.h>
 #include <xxhash.h>
+#include <string>
+#include <fstream>
+#include <sstream>
+#include <elf.h>
+#include <sys/stat.h>
 
 struct env {
   time_t duration;
@@ -232,6 +237,106 @@ static int64_t diff_s(const struct timespec &start,
   return seconds;
 }
 
+unsigned long get_base_address(int pid) {
+  std::string maps_path = "/proc/" + std::to_string(pid) + "/maps";
+  std::ifstream maps_file(maps_path);
+  if (!maps_file.is_open()) {
+    fprintf(stderr, "Failed to open %s\n", maps_path.c_str());
+    return 0;
+  }
+  std::string line;
+  while (std::getline(maps_file, line)) {
+    std::istringstream iss(line);
+    std::string address_range, perms, offset, dev, inode, pathname;
+    if (!(iss >> address_range >> perms >> offset >> dev >> inode))
+      continue;
+    std::getline(iss, pathname); // get the rest of the line
+    // Look for the main executable mapping (r-xp and inode != 0)
+    if (perms.find('x') != std::string::npos && inode != "0") {
+      size_t dash = address_range.find('-');
+      if (dash != std::string::npos) {
+        std::string base_addr_str = address_range.substr(0, dash);
+        return std::stoul(base_addr_str, nullptr, 16);
+      }
+    }
+  }
+  return 0;
+}
+
+bool is_pie_executable(int pid) {
+  std::string exe_path = "/proc/" + std::to_string(pid) + "/exe";
+  struct stat st;
+  if (lstat(exe_path.c_str(), &st) == -1) {
+    fprintf(stderr, "Failed to stat %s\n", exe_path.c_str());
+    return false;
+  }
+  // Open the ELF file
+  FILE *f = fopen(exe_path.c_str(), "rb");
+  if (!f) {
+    fprintf(stderr, "Failed to open %s\n", exe_path.c_str());
+    return false;
+  }
+  unsigned char e_ident[EI_NIDENT];
+  if (fread(e_ident, 1, EI_NIDENT, f) != EI_NIDENT) {
+    fclose(f);
+    return false;
+  }
+  if (e_ident[EI_CLASS] != ELFCLASS64) {
+    fclose(f);
+    fprintf(stderr, "Only ELF64 is supported (BOLT limitation)\n");
+    return false;
+  }
+  fseek(f, 0, SEEK_SET);
+  Elf64_Ehdr ehdr;
+  if (fread(&ehdr, 1, sizeof(ehdr), f) != sizeof(ehdr)) {
+    fclose(f);
+    return false;
+  }
+  if (ehdr.e_type == ET_DYN) {
+    // Find dynamic section
+    fseek(f, ehdr.e_phoff, SEEK_SET);
+    for (int i = 0; i < ehdr.e_phnum; ++i) {
+      Elf64_Phdr phdr;
+      if (fread(&phdr, 1, sizeof(phdr), f) != sizeof(phdr)) break;
+      if (phdr.p_type == PT_DYNAMIC) {
+        size_t dyn_count = phdr.p_filesz / sizeof(Elf64_Dyn);
+        fseek(f, phdr.p_offset, SEEK_SET);
+        for (size_t j = 0; j < dyn_count; ++j) {
+          Elf64_Dyn dyn;
+          if (fread(&dyn, 1, sizeof(dyn), f) != sizeof(dyn)) break;
+          if (dyn.d_tag == DT_FLAGS_1) {
+            if (dyn.d_un.d_val & DF_1_PIE) {
+              fclose(f);
+              printf("pie executable\n");
+              return true;
+            } else {
+              fclose(f);
+              printf("shared object\n");
+              return false;
+            }
+          }
+        }
+      }
+    }
+    // If ET_DYN but no DT_FLAGS_1, check executable bit
+    if (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) {
+      fclose(f);
+      printf("pie executable\n");
+      return true;
+    }
+    fclose(f);
+    printf("shared object\n");
+    return false;
+  }
+  fclose(f);
+  // If not ET_DYN, check executable bit
+  if (st.st_mode & (S_IXUSR | S_IXGRP | S_IXOTH)) {
+    printf("pie executable\n");
+    return true;
+  }
+  return false;
+}
+
 int main(int argc, char **argv) {
   int i;
   LIBBPF_OPTS(bpf_object_open_opts, open_opts);
@@ -248,6 +353,15 @@ int main(int argc, char **argv) {
   err = argp_parse(&argp, argc, argv, 0, NULL, NULL);
   if (err)
     return err;
+
+  // PIE support: check if PIE and get base address if so
+  bool is_pie = is_pie_executable(env.pid);
+  unsigned long base_addr = 0;
+  if (is_pie) {
+    base_addr = get_base_address(env.pid);
+    if (env.verbose)
+      fprintf(stderr, "Base address for PID %d: 0x%lx\n", env.pid, base_addr);
+  }
 
   ctx_s preagg_ctx;
 
