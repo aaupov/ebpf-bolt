@@ -203,13 +203,17 @@ int handle_event(void *ctx, void *data, size_t data_sz) {
   return 0;
 }
 
-void print_aggregated() {
+void print_aggregated(unsigned long base_addr) {
   fprintf(stderr, "%ld traces\n", traces.size());
   for (auto &&[key, val] : traces) {
+    unsigned long long branch = key.branch - base_addr;
+    unsigned long long from = key.from - base_addr;
     if (key.to == -1ULL)
-      printf("B %lx %lx", key.branch, key.from);
-    else
-      printf("T %lx %lx %lx", key.branch, key.from, key.to);
+      printf("B %lx %lx", branch, from);
+    else {
+      unsigned long long to = key.to - base_addr;
+      printf("T %lx %lx %lx", branch, from, to);
+    }
     printf(" %lu %lu %lu\n", val.count, val.mispred, val.cycles);
   }
 }
@@ -425,7 +429,7 @@ int main(int argc, char **argv) {
       break;
   }
   // Read maps and print aggregated data
-  print_aggregated();
+  print_aggregated(base_addr);
 cleanup:
   for (i = 0; i < nr_cpus; i++)
     bpf_link__destroy(links[i]);
