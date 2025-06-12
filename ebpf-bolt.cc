@@ -203,15 +203,20 @@ int handle_event(void *ctx, void *data, size_t data_sz) {
   return 0;
 }
 
-void print_aggregated(unsigned long base_addr) {
+void print_aggregated(unsigned long long base_addr, unsigned long long end_addr) {
+  auto filter_addr = [&](unsigned long long addr) {
+    if (addr >= base_addr && addr < end_addr)
+      return addr - base_addr; // PIE, offset from base address
+    return addr; // external address, don't care
+  };
   fprintf(stderr, "%ld traces\n", traces.size());
   for (auto &&[key, val] : traces) {
-    unsigned long long branch = key.branch - base_addr;
-    unsigned long long from = key.from - base_addr;
+    unsigned long long branch = filter_addr(key.branch);
+    unsigned long long from = filter_addr(key.from);
     if (key.to == -1ULL)
       printf("B %llx %llx %llu %llu\n", branch, from, val.count, val.mispred);
     else {
-      unsigned long long to = key.to - base_addr;
+      unsigned long long to = filter_addr(key.to);
       printf("T %llx %llx %llx %llu\n", branch, from, to, val.count);
     }
     // cycles are not printed
@@ -238,12 +243,12 @@ static int64_t diff_s(const struct timespec &start,
   return seconds;
 }
 
-unsigned long get_base_address(int pid) {
+std::pair<unsigned long long, unsigned long long> get_base_address(int pid) {
   std::string maps_path = "/proc/" + std::to_string(pid) + "/maps";
   std::ifstream maps_file(maps_path);
   if (!maps_file.is_open()) {
     fprintf(stderr, "Failed to open %s\n", maps_path.c_str());
-    return 0;
+    exit(1);
   }
   std::string line;
   while (std::getline(maps_file, line)) {
@@ -253,15 +258,19 @@ unsigned long get_base_address(int pid) {
       continue;
     std::getline(iss, pathname); // get the rest of the line
     // Look for the main executable mapping (r-xp and inode != 0)
-    if (perms.find('x') != std::string::npos && inode != "0") {
-      size_t dash = address_range.find('-');
-      if (dash != std::string::npos) {
-        std::string base_addr_str = address_range.substr(0, dash);
-        return std::stoul(base_addr_str, nullptr, 16);
-      }
+    if (perms.find('x') == std::string::npos || inode == "0")
+      continue; 
+    size_t dash = address_range.find('-');
+    if (dash = std::string::npos) {
+      fprintf(stderr, "Invalid address range format: %s\n", address_range.c_str());
+      exit(1); // No dash found in address range
     }
+    std::string base_addr_str = address_range.substr(0, dash);
+    std::string end_addr_str = address_range.substr(dash + 1);
+    return {std::stoul(base_addr_str, nullptr, 16), 
+            std::stoul(end_addr_str, nullptr, 16)};
   }
-  return 0;
+  exit(1); // No base address found
 }
 
 bool is_pie_executable(int pid) {
@@ -361,12 +370,13 @@ int main(int argc, char **argv) {
 
   // PIE support: check if PIE and get base address if so
   bool is_pie = is_pie_executable(env.pid);
-  unsigned long base_addr = 0;
+  unsigned long long base_addr = 0;
+  unsigned long long end_addr = 0;
   if (is_pie) {
     fprintf(stderr, "PIE executable\n");
-    base_addr = get_base_address(env.pid);
+    std::tie(base_addr, end_addr) = get_base_address(env.pid);
     if (env.verbose)
-      fprintf(stderr, "Base address for PID %d: 0x%lx\n", env.pid, base_addr);
+      fprintf(stderr, "First executable mapping for PID %d: 0x%llx-0x%llx\n", env.pid, base_addr, end_addr);
   }
 
   nr_cpus = libbpf_num_possible_cpus();
@@ -434,7 +444,7 @@ int main(int argc, char **argv) {
       break;
   }
   // Read maps and print aggregated data
-  print_aggregated(base_addr);
+  print_aggregated(base_addr, end_addr);
 cleanup:
   for (i = 0; i < nr_cpus; i++)
     bpf_link__destroy(links[i]);
