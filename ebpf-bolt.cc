@@ -227,6 +227,8 @@ std::pair<unsigned long long, unsigned long long> get_base_address(int pid) {
     fprintf(stderr, "Failed to open %s\n", maps_path.c_str());
     exit(1);
   }
+  uint64_t base_addr = 0;
+  uint64_t end_addr = 0;
   std::string line;
   while (std::getline(maps_file, line)) {
     std::istringstream iss(line);
@@ -234,9 +236,11 @@ std::pair<unsigned long long, unsigned long long> get_base_address(int pid) {
     if (!(iss >> address_range >> perms >> offset >> dev >> inode))
       continue;
     std::getline(iss, pathname); // get the rest of the line
-    // Look for the main executable mapping (r-xp and inode != 0)
-    if (perms.find('x') == std::string::npos || inode == "0")
+    // When looking for the end address, check the first executable mapping
+    // (r-xp and inode != 0)
+    if (base_addr && (perms.find('x') == std::string::npos || inode == "0"))
       continue;
+    // Assuming the first mapping belongs to the process...
     size_t dash = address_range.find('-');
     if (dash == std::string::npos) {
       fprintf(stderr, "Invalid address range format: %s\n", address_range.c_str());
@@ -244,9 +248,17 @@ std::pair<unsigned long long, unsigned long long> get_base_address(int pid) {
     }
     std::string base_addr_str = address_range.substr(0, dash);
     std::string end_addr_str = address_range.substr(dash + 1);
-    return {std::stoul(base_addr_str, nullptr, 16),
-            std::stoul(end_addr_str, nullptr, 16)};
+    if (!base_addr) {
+      base_addr = std::stoull(base_addr_str, nullptr, 16);
+      continue;
+    } else {
+      end_addr = std::stoull(end_addr_str, nullptr, 16);
+      break;
+    }
   }
+  if (base_addr && end_addr)
+    return {base_addr, end_addr};
+  fprintf(stderr, "No base address found for %d\n", pid);
   exit(1); // No base address found
 }
 
@@ -353,7 +365,8 @@ int main(int argc, char **argv) {
     fprintf(stderr, "PIE executable\n");
     std::tie(base_addr, end_addr) = get_base_address(env.pid);
     if (env.verbose)
-      fprintf(stderr, "First executable mapping for PID %d: 0x%llx-0x%llx\n", env.pid, base_addr, end_addr);
+      fprintf(stderr, "Base LOAD address for PID %d: 0x%llx\n", env.pid,
+              base_addr);
   }
 
   nr_cpus = libbpf_num_possible_cpus();
