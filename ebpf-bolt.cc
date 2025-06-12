@@ -10,12 +10,11 @@
 #include <asm/unistd.h>
 #include <bpf/libbpf.h>
 #include <fcntl.h>
-#include <unordered_map>
+#include <map>
 #include <signal.h>
 #include <time.h>
 #include <uapi/linux/perf_event.h>
 #include <unistd.h>
-#include <xxhash.h>
 #include <string>
 #include <fstream>
 #include <sstream>
@@ -168,37 +167,23 @@ void cleanup_core_btf(struct bpf_object_open_opts *opts) {
 }
 
 struct trace_t {
-  unsigned long long branch, from, to;
-  bool operator==(const trace_t &O) const = default;
-};
-struct counters_t {
-  unsigned long long count{0}, mispred{0}, cycles{0};
-};
-struct trace_hash {
-  size_t operator()(const trace_t &key) const {
-    return XXH3_64bits(&key, sizeof(trace_t));
+  uint64_t branch, from, to;
+  bool operator<(const trace_t &O) const {
+    return std::tie(branch, from, to) < std::tie(O.branch, O.from, O.to);
   }
 };
 
-typedef std::unordered_map<trace_t, counters_t, trace_hash> agg_map_t;
-agg_map_t traces;
+std::map<trace_t, uint64_t> traces;
 
 int handle_event(void *ctx, void *data, size_t data_sz) {
-  agg_map_t &traces = *static_cast<agg_map_t *>(ctx);
+  auto &traces = *static_cast<std::map<trace_t, uint64_t> *>(ctx);
   const struct event *e = reinterpret_cast<struct event *>(data);
   long entries = e->size / sizeof(event::entry_t);
+  uint64_t next_branch = -1ULL;
   for (int i = 0; i < entries; ++i) {
-    uint16_t cycles = 0;
-    uint64_t ft_end = -1ULL;
-    if (i + 1 != entries) {
-      ft_end = e->entries[i + 1].from;
-      cycles = e->entries[i + 1].flags.cycles;
-    }
-    trace_t trace{e->entries[i].from, e->entries[i].to, ft_end};
-    counters_t &cnt = traces[trace];
-    ++cnt.count;
-    cnt.mispred += e->entries[i].flags.mispred;
-    cnt.cycles += cycles;
+    trace_t trace{e->entries[i].from, e->entries[i].to, next_branch};
+    ++traces[trace];
+    next_branch = e->entries[i].from;
   }
   return 0;
 }
@@ -210,17 +195,9 @@ void print_aggregated(unsigned long long base_addr, unsigned long long end_addr)
     return addr; // external address, don't care
   };
   fprintf(stderr, "%ld traces\n", traces.size());
-  for (auto &&[key, val] : traces) {
-    unsigned long long branch = filter_addr(key.branch);
-    unsigned long long from = filter_addr(key.from);
-    if (key.to == -1ULL)
-      printf("B %llx %llx %llu %llu\n", branch, from, val.count, val.mispred);
-    else {
-      unsigned long long to = filter_addr(key.to);
-      printf("T %llx %llx %llx %llu\n", branch, from, to, val.count);
-    }
-    // cycles are not printed
-  }
+  for (auto &&[key, cnt] : traces)
+    printf("T %llx %llx %llx %lu\n", filter_addr(key.branch),
+           filter_addr(key.from), filter_addr(key.to), cnt);
 }
 
 static int libbpf_print_fn(enum libbpf_print_level level, const char *format,
@@ -259,15 +236,15 @@ std::pair<unsigned long long, unsigned long long> get_base_address(int pid) {
     std::getline(iss, pathname); // get the rest of the line
     // Look for the main executable mapping (r-xp and inode != 0)
     if (perms.find('x') == std::string::npos || inode == "0")
-      continue; 
+      continue;
     size_t dash = address_range.find('-');
-    if (dash = std::string::npos) {
+    if (dash == std::string::npos) {
       fprintf(stderr, "Invalid address range format: %s\n", address_range.c_str());
       exit(1); // No dash found in address range
     }
     std::string base_addr_str = address_range.substr(0, dash);
     std::string end_addr_str = address_range.substr(dash + 1);
-    return {std::stoul(base_addr_str, nullptr, 16), 
+    return {std::stoul(base_addr_str, nullptr, 16),
             std::stoul(end_addr_str, nullptr, 16)};
   }
   exit(1); // No base address found

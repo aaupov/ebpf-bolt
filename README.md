@@ -19,9 +19,9 @@ This tool makes use of LBR for 0-overhead sampling and [eBPF CO-RE](https://docs
   - ARM Branch Record Buffer Extensions (BRBE): since v9.2-A (Cortex-X4, A720, and A520), Linux v6.1.
 - Kernel: Linux 4.16 with `CONFIG_DEBUG_INFO_BTF=y` for BPF CO-RE, 
 - Compiler: Clang 10 or GCC 12 with BPF target and CO-RE relocations support.
-- xxhash and libelf:
-  - CentOS: `dnf install xxhash-devel elfutils-libelf-devel`
-  - Ubuntu: `apt install libxxhash-dev libelf-dev`
+- libelf:
+  - CentOS: `dnf install elfutils-libelf-devel`
+  - Ubuntu: `apt install libelf-dev`
 
 ## Build instructions
 1. Clone this repository with libbpf submodule: 

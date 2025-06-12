@@ -14,7 +14,7 @@ app: $(TARGET) $(BPF_OBJ)
 
 $(TARGET): $(USER_CC) $(USER_SKEL) $(COMMON_H)
 	$(CXX) $(CXXFLAGS) -o $(TARGET) $(USER_CC) \
-            -L./libbpf/src -l:libbpf.a -lelf -lz -lxxhash \
+            -L./libbpf/src -l:libbpf.a -lelf -lz \
             -I${CURDIR}/libbpf/install/include -I${CURDIR}/libbpf/include
 
 %.bpf.o: %.bpf.c vmlinux.h $(COMMON_H)
