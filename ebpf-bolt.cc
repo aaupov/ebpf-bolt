@@ -192,6 +192,8 @@ void print_aggregated(unsigned long long base_addr, unsigned long long end_addr)
   auto filter_addr = [&](unsigned long long addr) {
     if (addr >= base_addr && addr < end_addr)
       return addr - base_addr; // PIE, offset from base address
+    else if (addr < base_addr)
+      return 0; // avoid conflicting addresses
     return addr; // external address, don't care
   };
   fprintf(stderr, "%ld traces\n", traces.size());
