@@ -3,7 +3,7 @@
 #define __EBPF_BOLT_H
 
 #define ENTRY_CNT 32
-#define MAX_CPU_NR 128
+#define MAX_CPU_NR 256
 
 struct branch_flags {
   union {
