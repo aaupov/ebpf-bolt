@@ -7,7 +7,6 @@ This tool enables quicker profiling + optimization turnaround time thanks to pro
 
 ## Limitations
 1. Collecting the profile for shared libraries is not yet supported (perf2bolt limitation).
-2. PIE support is experimental.
 3. Only ELF64 (64-bit) binaries are supported. ELF32 (32-bit) binaries are not supported (BOLT limitation).
 
 ## Prerequisites
@@ -16,7 +15,7 @@ This tool makes use of LBR for 0-overhead sampling and [eBPF CO-RE](https://docs
   - Intel Last Branch Record (LBR): since Pentium 4 Netburst, including all Atom CPUs, Linux 2.6.35.
   - AMD LBRv2: since Zen4, Linux v6.1.
   - AMD Branch Sampling (BRS): since Zen3 for EPYC, Linux 5.19. Untested.
-  - ARM Branch Record Buffer Extensions (BRBE): since v9.2-A (Cortex-X4, A720, and A520), Linux v6.1.
+  - ARM Branch Record Buffer Extensions (BRBE): since v9.2-A (Cortex-X4, A720, and A520, Neoverse-V3), Linux v6.17.
 - Kernel: Linux 4.16 with `CONFIG_DEBUG_INFO_BTF=y` for BPF CO-RE, 
 - Compiler: Clang 10 or GCC 12 with BPF target and CO-RE relocations support.
 - libelf:
