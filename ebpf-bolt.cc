@@ -397,6 +397,8 @@ int main(int argc, char **argv) {
     goto cleanup;
   }
 
+  skel->bss->target_pid = env.pid;
+
   err = open_and_attach_perf_event(env.freq, skel->progs.lbr_branches, links);
   if (err)
     goto cleanup;

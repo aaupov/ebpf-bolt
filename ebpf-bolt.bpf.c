@@ -2,6 +2,8 @@
 #include "vmlinux.h"
 #include <bpf/bpf_helpers.h>
 
+volatile int target_pid;
+
 struct {
   __uint(type, BPF_MAP_TYPE_RINGBUF);
   __uint(max_entries, 1024 * 1024 /* 1 MB */);
@@ -9,6 +11,11 @@ struct {
 
 SEC("perf_event")
 int lbr_branches(void *ctx) {
+  __u32 pid = bpf_get_current_pid_tgid() >> 32;
+  if (target_pid != 0 && target_pid != pid) {
+    return 0;
+  }
+
   struct event *e = bpf_ringbuf_reserve(&rb, sizeof(struct event), 0);
   if (!e)
     return 0;
